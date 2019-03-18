@@ -106,6 +106,37 @@ kubectl get pods -o=wide
 kubectl apply -f wordpress.yaml
 ```
 
+ここで問題が..,
+`wordpress.yaml`が利用している`wordpress-volumeclaim`は`accessModes: ReadWriteOnce`なのである。
+
+`kubectl describe pod wordpress`をやってみるとわかるが、
+```
+Events:
+  Type     Reason              Age                 From                                                          Message
+  ----     ------              ----                ----                                                          -------
+  Normal   Scheduled           9m9s                default-scheduler                                             Successfully assigned default/wordpress-8648c887dc-2hcxf to gke-persistent-disk-tuto-default-pool-f0cd3ac1-htwh
+  Warning  FailedAttachVolume  9m9s                attachdetach-controller                                       Multi-Attach error for volume "pvc-740f57ab-496c-11e9-aa81-42010a92023f" Volume is already used by pod(s) wordpress-78c9b8d684-vr9zd
+  Warning  FailedMount         21s (x4 over 7m6s)  kubelet, gke-persistent-disk-tuto-default-pool-f0cd3ac1-htwh  Unable to mount volumes for pod "wordpress-8648c887dc-2hcxf_default(2a78750e-4986-11e9-aa81-42010a92023f)": timeout expired waiting for volumes to attach or mount for pod "default"/"wordpress-8648c887dc-2hcxf". list of unmounted volumes=[wordpress-persistent-storage]. list of unattached volumes=[wordpress-persistent-storage default-token-9swck]
+  ```
+
+  というように、  `Multi-Attach error` となる。
+  そこで、`wordpress.yaml`に↓のように`strategy:`の部分を追加する。こうすると、まず生きているコンテナを壊して、瞬断があったのちにワードプレスが復活するのである。
+  ```
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: wordpress
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 1
+        maxSurge: 0
+    template:
+      metadata:
+        labels:
+          app: wordpress
+```
 
 
 
