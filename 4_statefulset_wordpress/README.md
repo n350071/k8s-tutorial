@@ -59,6 +59,7 @@ git submodule add https://github.com/GoogleCloudPlatform/kubernetes-engine-sampl
 kubectl config current-context
 kubectl apply -f mysql-volumeclaim.yaml
 kubectl apply -f wordpress-volumeclaim.yaml
+kubectl get pvc
 ```
 
 4. MySQLで使うSecretと、MySQLのDeployment作成
@@ -138,15 +139,68 @@ Events:
           app: wordpress
 ```
 
+### GKEをpreemptibleインスタンスを使って安くする
+[安価なGKE（k8s）クラスタを作って趣味開発に活用する](https://blog.a-know.me/entry/2018/06/17/220222) を参考にさせていただきました。
 
+せっかく作ったので、 `gcloud container clusters update --preemptible` できないか？と思いましたが、 [ダメの様子](https://cloud.google.com/sdk/gcloud/reference/container/clusters/update)です。
 
+1. preemptibleクラスタの作成
+```
+gcloud container clusters create preemptible-persistent-disk-tutorial --preemptible --machine-type=f1-micro --num-nodes=3 --disk-size=10 --enable-autorepair
+```
 
+- `--preemptible` : 価格が安い代わりに、最大起動時間が24時間だったり、保証がなかったりする。詳細は[こちら](https://cloud.google.com/kubernetes-engine/docs/how-to/preemptible-vms)
+- `--machine-type=f1-micro` : 0.2 基の vCPU と 0.60 GB のメモリを備え、共有物理コアを基盤としたマイクロ マシンタイプ (バースト機能あり) 詳細は[こちら](https://cloud.google.com/compute/docs/machine-types?hl=ja)
 
+作ろうとしたが、すでに２個も作っていて、`Compute Engine API In-use IP addresses` が足りなくなったようで、
+```
+ERROR: (gcloud.container.clusters.create) ResponseError: code=403, message=Insufficient regional quota to satisfy request: resource "IN_USE_ADDRESSES": request requires '3.0' and is short '1.0'. project has a quota of '8.0' with '2.0' available. View and manage quotas at https://console.cloud.google.com/iam-admin/quotas?usage=USED&project=labo-shirohune.
+```
+というエラーが出る。
 
+先にクラスタを削除する
+```
+gcloud container clusters delete persistent-disk-tutorial --async
+```
+`--async` で待たずに削除。
+GUI上では、まだ残っているが、作成できた。
 
+2. 同クラスタに、preemptibleでないノードインスタンスのサブセットを作る
+- クラスタ
+  - デフォルトクラスタ ←さっき作った(いつ壊れるともわからない)
+  - これから作るクラスタ ←(保証ある)
 
+```
+gcloud container node-pools create not-preemptible-pool --cluster preemptible-persistent-disk-tutorial --machine-type=f1-micro --num-nodes=1 --disk-size=10
+```
 
+確認
+```
+gcloud container node-pools list --cluster preemptible-persistent-disk-tutorial
 
+NAME                  MACHINE_TYPE  DISK_SIZE_GB  NODE_VERSION
+default-pool          f1-micro      10            1.11.7-gke.4
+not-preemptible-pool  f1-micro      10            1.11.7-gke.4
+```
 
+3. 以降
+上記の"PVCの作成"に戻る
+
+4. 問題
+MySQLが ` Does not have minimum availability` で起動できない..
+おそらくは、マシンタイプを指定したから、デフォルトのものより小さくなったことが原因なのだろう。
+
+同じプロジェクト内にある、もう１つのクラスタを削除してみる。（クラスタの能力が足りないのだから意味がないかもしれないが）
+
+ノード数を変えてみる
+```
+gcloud container clusters resize preemptible-persistent-disk-tutorial --size=4 --node-pool=default-pool
+```
+
+プロジェクトを作り直して、作業してみたが変わらなかった。
+そこで、マシンタイプをデフォルトのプールを加えてみようと思う。
+```
+gcloud container node-pools create preemptible-n1-standard-1-pool --cluster preemptible-persistent-disk-tutorial --machine-type=n1-standard-1 --num-nodes=3 --disk-size=10 --preemptible
+```
 
 ---

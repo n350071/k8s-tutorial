@@ -38,7 +38,7 @@ $ kubectl delete service -l app=guestbook
 0. 準備
 ```
 gcloud projects create <PROJECT-ID>
-gcloud project list
+gcloud projects list
 gcloud config list
 gcloud config set project <PROJECT-ID>
 gcloud config get-value project
